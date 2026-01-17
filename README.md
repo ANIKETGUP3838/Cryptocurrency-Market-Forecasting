@@ -8,7 +8,7 @@ remain usable during evaluation.
 
 ## 🚀 Live Demo
 🔗 **App URL:**  
-(Add your deployed Streamlit link here)
+[App](https://ai-fact-checking-web-app-hsnexgdnlm7vkpy7hxqssw.streamlit.app/)
 
 ---
 
