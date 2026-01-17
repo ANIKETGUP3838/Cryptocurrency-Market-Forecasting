@@ -21,9 +21,9 @@ OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY"))
 TAVILY_API_KEY = st.secrets.get("TAVILY_API_KEY", os.getenv("TAVILY_API_KEY"))
 
 if not OPENAI_API_KEY or not TAVILY_API_KEY:
-    st.warning(
-        "⚠️ API keys not found.\n\n"
-        "Please add **OPENAI_API_KEY** and **TAVILY_API_KEY** in Streamlit Secrets."
+    st.error(
+        "❌ API keys not found.\n\n"
+        "Add OPENAI_API_KEY and TAVILY_API_KEY in Streamlit Secrets."
     )
     st.stop()
 
@@ -63,7 +63,7 @@ def extract_claims(text):
     {text}
     """
 
-    response = llm([HumanMessage(content=prompt)])
+    response = llm.invoke([HumanMessage(content=prompt)])
     lines = response.content.split("\n")
 
     claims = [
@@ -94,7 +94,7 @@ def verify_claim(claim):
     Explanation: <1–2 lines explanation>
     """
 
-    response = llm([HumanMessage(content=verification_prompt)])
+    response = llm.invoke([HumanMessage(content=verification_prompt)])
     return response.content, search_results
 
 
