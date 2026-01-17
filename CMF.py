@@ -2,6 +2,9 @@ import streamlit as st
 import pdfplumber
 import os
 import re
+import os
+os.environ["OPENAI_API_KEY"] = "sk-xxxxxxxx"
+os.environ["TAVILY_API_KEY"] = "tvly-xxxxxxxx"
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
