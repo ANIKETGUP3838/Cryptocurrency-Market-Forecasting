@@ -1,7 +1,7 @@
 streamlit
 pdfplumber
-langchain
-langchain-openai
+langchain-core
 langchain-community
+langchain-openai
 tavily-python
 openai
