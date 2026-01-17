@@ -24,19 +24,12 @@ st.title("📈 Cryptocurrency Market Forecasting App")
 
 tab1, tab2 = st.tabs(["📄 Project Summary", "📊 Forecasting App"])
 
-# ================= HELPERS =================
-def find_first_existing_column(data, candidates):
-    for col in candidates:
-        if col in data.columns:
-            return col
-    return None
-
 # ================= TAB 1 =================
 with tab1:
     st.markdown("""
-    **Cryptocurrency Market Forecasting**
-    
-    Models used:
+    **Cryptocurrency Market Forecasting App**
+
+    Models:
     - ARIMA
     - SARIMA
     - Exponential Smoothing
@@ -53,26 +46,30 @@ with tab2:
     )
 
     if uploaded_file is None:
-        st.info("Please upload a CSV file to continue.")
+        st.info("Upload a CSV file to continue.")
         st.stop()
 
-    # ---------- READ CSV (DO NOT RENAME THIS VARIABLE) ----------
+    # ---------- LOAD DATA ----------
     crypto_df = pd.read_csv(uploaded_file)
 
-    if not isinstance(crypto_df, pd.DataFrame):
-        st.error("Uploaded file is not a valid CSV.")
+    # ---------- USER-SELECT DATE COLUMN (FIX) ----------
+    possible_date_cols = [
+        c for c in crypto_df.columns
+        if crypto_df[c].dtype == "object"
+    ]
+
+    if not possible_date_cols:
+        st.error("No possible date columns found.")
+        st.write("Columns:", list(crypto_df.columns))
         st.stop()
 
-    # ---------- DETECT DATE COLUMN ----------
-    date_col = find_first_existing_column(
-        crypto_df,
-        ["date", "timestamp", "time", "datetime"]
+    date_col = st.sidebar.selectbox(
+        "Select Date Column",
+        possible_date_cols
     )
 
-    if date_col is None:
-        st.error("No date column found.")
-        st.write(list(crypto_df.columns))
-        st.stop()
+    # ✅ GUARANTEE date_col is a string
+    date_col = str(date_col)
 
     crypto_df[date_col] = pd.to_datetime(
         crypto_df[date_col],
@@ -82,20 +79,15 @@ with tab2:
     crypto_df.dropna(subset=[date_col], inplace=True)
     crypto_df.sort_values(date_col, inplace=True)
 
-    # ---------- DETECT CRYPTO COLUMN ----------
-    crypto_col = find_first_existing_column(
-        crypto_df,
-        ["symbol", "coin", "name", "id", "asset"]
+    # ---------- USER-SELECT CRYPTO COLUMN ----------
+    categorical_cols = crypto_df.select_dtypes(
+        include=["object"]
+    ).columns.tolist()
+
+    crypto_col = st.sidebar.selectbox(
+        "Select Crypto Identifier Column",
+        categorical_cols
     )
-
-    if crypto_col is None:
-        st.error("No cryptocurrency identifier column found.")
-        st.write(list(crypto_df.columns))
-        st.stop()
-
-    # ---------- SIDEBAR FILTERS ----------
-    st.sidebar.success(f"Crypto column: {crypto_col}")
-    st.sidebar.success(f"Date column: {date_col}")
 
     crypto_value = st.sidebar.selectbox(
         "Cryptocurrency",
@@ -108,13 +100,13 @@ with tab2:
 
     filtered_df.set_index(date_col, inplace=True)
 
-    # ---------- NUMERIC TARGET ----------
+    # ---------- TARGET COLUMN ----------
     numeric_cols = filtered_df.select_dtypes(
         include=["int64", "float64"]
     ).columns.tolist()
 
     if not numeric_cols:
-        st.error("No numeric columns available.")
+        st.error("No numeric columns found.")
         st.stop()
 
     target_col = st.sidebar.selectbox(
@@ -125,11 +117,11 @@ with tab2:
     series = filtered_df[target_col].dropna()
 
     if len(series) < 120:
-        st.warning("Not enough data points (minimum 120).")
+        st.warning("At least 120 rows required.")
         st.stop()
 
     # ---------- PREVIEW ----------
-    st.subheader(f"{crypto_value} — {target_col.upper()}")
+    st.subheader(f"{crypto_value} — {target_col}")
     st.write(series.head())
 
     # ---------- TIME SERIES ----------
@@ -187,7 +179,7 @@ with tab2:
         forecast = model.get_forecast(90).predicted_mean
         st.write("RMSE:", np.sqrt(mean_squared_error(test, forecast)))
 
-    # ---------- EXP SMOOTH ----------
+    # ---------- EXPONENTIAL SMOOTHING ----------
     if st.button("Run Exponential Smoothing"):
         model = ExponentialSmoothing(
             train,
