@@ -33,87 +33,104 @@ with tab2:
 
     uploaded_file = st.sidebar.file_uploader(
         "Upload crypto-markets.csv",
-        type=["csv"]
+        type=["csv"],
+        key="file_uploader"
     )
+
+    # 🔴 RESET STATE WHEN NEW FILE IS UPLOADED
+    if uploaded_file is not None and "last_file" not in st.session_state:
+        st.session_state.clear()
+        st.session_state["last_file"] = uploaded_file.name
 
     if uploaded_file is None:
         st.stop()
 
-    # ---------- LOAD CSV ----------
+    # ---------- LOAD DATA ----------
     crypto_df = pd.read_csv(uploaded_file)
 
-    # ✅ CRITICAL FIX — NORMALIZE COLUMN NAMES
+    # 🔴 CLEAN COLUMN NAMES
     crypto_df.columns = (
-        crypto_df.columns
-        .astype(str)
+        crypto_df.columns.astype(str)
         .str.replace("\ufeff", "", regex=False)
         .str.strip()
     )
 
-    # ---------- SHOW TRUE COLUMN NAMES ----------
-    st.sidebar.markdown("### Cleaned Columns")
-    st.sidebar.write(list(crypto_df.columns))
+    columns = list(crypto_df.columns)
 
-    # ---------- USER SELECT COLUMNS ----------
+    st.sidebar.markdown("### Dataset Columns")
+    st.sidebar.write(columns)
+
+    # ---------- DATE COLUMN ----------
     date_col = st.sidebar.selectbox(
         "Select Date Column",
-        options=list(crypto_df.columns)
+        options=columns,
+        key="date_col_select"
     )
 
-    crypto_col = st.sidebar.selectbox(
-        "Select Crypto Identifier Column",
-        options=list(crypto_df.columns)
-    )
+    if date_col not in crypto_df.columns:
+        st.error("Invalid date column selected")
+        st.stop()
 
-    # ---------- SAFE DATE CONVERSION ----------
     crypto_df[date_col] = pd.to_datetime(
         crypto_df[date_col],
         errors="coerce"
     )
-
     crypto_df = crypto_df.dropna(subset=[date_col])
     crypto_df = crypto_df.sort_values(by=date_col)
 
+    # ---------- CRYPTO IDENTIFIER COLUMN ----------
+    crypto_col = st.sidebar.selectbox(
+        "Select Crypto Identifier Column",
+        options=columns,
+        key="crypto_col_select"
+    )
+
+    if crypto_col not in crypto_df.columns:
+        st.error("Invalid crypto column selected")
+        st.stop()
+
     crypto_value = st.sidebar.selectbox(
-        "Cryptocurrency",
-        sorted(crypto_df[crypto_col].astype(str).unique())
+        "Select Cryptocurrency",
+        options=sorted(crypto_df[crypto_col].astype(str).unique()),
+        key="crypto_value_select"
     )
 
     filtered_df = crypto_df[
         crypto_df[crypto_col].astype(str) == crypto_value
     ].copy()
 
-    filtered_df = filtered_df.set_index(date_col)
+    filtered_df.set_index(date_col, inplace=True)
 
-    # ---------- TARGET VARIABLE ----------
+    # ---------- TARGET COLUMN ----------
     numeric_cols = filtered_df.select_dtypes(
         include=["int64", "float64"]
     ).columns.tolist()
 
     if not numeric_cols:
-        st.error("No numeric columns available.")
+        st.error("No numeric columns available for forecasting")
         st.stop()
 
     target_col = st.sidebar.selectbox(
-        "Target Variable",
-        options=numeric_cols
+        "Select Target Variable",
+        options=numeric_cols,
+        key="target_col_select"
     )
+
+    if target_col not in filtered_df.columns:
+        st.error("Invalid target column selected")
+        st.stop()
 
     series = filtered_df[target_col].dropna()
 
     if len(series) < 120:
-        st.warning("At least 120 data points required.")
+        st.warning("At least 120 data points are required")
         st.stop()
 
-    # ---------- PLOTS ----------
+    # ---------- PLOT ----------
     st.plotly_chart(px.line(series, title="Time Series"), use_container_width=True)
 
     # ---------- DECOMPOSITION ----------
-    decomposition = sm.tsa.seasonal_decompose(
-        series,
-        model="additive",
-        period=30
-    )
+    decomposition = sm.tsa.seasonal_decompose(series, model="additive", period=30)
 
     fig = make_subplots(rows=4, cols=1)
     fig.add_trace(go.Scatter(y=decomposition.observed), 1, 1)
@@ -129,36 +146,31 @@ with tab2:
     train = series[:-90]
     test = series[-90:]
 
-    # ---------- ARIMA ----------
-    if st.button("Run ARIMA"):
+    if st.button("Run ARIMA", key="arima_btn"):
         model = ARIMA(train, order=(5, 1, 0)).fit()
         forecast = model.forecast(90)
         st.write("RMSE:", np.sqrt(mean_squared_error(test, forecast)))
 
-    # ---------- SARIMA ----------
-    if st.button("Run SARIMA"):
+    if st.button("Run SARIMA", key="sarima_btn"):
         model = SARIMAX(train, order=(1,1,1), seasonal_order=(1,1,1,7)).fit()
         forecast = model.get_forecast(90).predicted_mean
         st.write("RMSE:", np.sqrt(mean_squared_error(test, forecast)))
 
-    # ---------- EXPONENTIAL SMOOTHING ----------
-    if st.button("Run Exponential Smoothing"):
+    if st.button("Run Exponential Smoothing", key="exp_btn"):
         model = ExponentialSmoothing(
             train, trend="add", seasonal="add", seasonal_periods=30
         ).fit()
         forecast = model.forecast(90)
         st.write("RMSE:", np.sqrt(mean_squared_error(test, forecast)))
 
-    # ---------- GARCH ----------
-    if st.button("Run GARCH"):
+    if st.button("Run GARCH", key="garch_btn"):
         returns = 100 * series.pct_change().dropna()
         model = arch_model(returns, vol="Garch", p=1, q=1)
         res = model.fit(disp="off")
         vol = res.forecast(horizon=90).variance.values[-1]
         st.plotly_chart(px.line(y=vol), use_container_width=True)
 
-    # ---------- LSTM ----------
-    if st.button("Run LSTM"):
+    if st.button("Run LSTM", key="lstm_btn"):
         scaler = MinMaxScaler()
         scaled = scaler.fit_transform(series.values.reshape(-1, 1))
 
