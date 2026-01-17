@@ -8,6 +8,12 @@ from langchain_core.messages import HumanMessage
 from langchain_community.tools.tavily_search import TavilySearchResults
 
 # =====================================================
+# GLOBAL FLAGS (IMPORTANT CORRECTION)
+# =====================================================
+DEMO_MODE = False
+OPENAI_DISABLED = False   # <- prevents repeated failures
+
+# =====================================================
 # STREAMLIT CONFIG
 # =====================================================
 st.set_page_config(page_title="AI Fact Checker", layout="wide")
@@ -20,11 +26,9 @@ st.write("Upload a PDF to verify factual claims using live web data.")
 OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY"))
 TAVILY_API_KEY = st.secrets.get("TAVILY_API_KEY", os.getenv("TAVILY_API_KEY"))
 
-DEMO_MODE = False
-
 if not OPENAI_API_KEY or not TAVILY_API_KEY:
     DEMO_MODE = True
-    st.warning("⚠️ Running in DEMO MODE (API keys missing or invalid)")
+    st.info("ℹ️ Running in DEMO MODE (API keys unavailable)")
 
 if OPENAI_API_KEY:
     os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
@@ -32,18 +36,19 @@ if TAVILY_API_KEY:
     os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
 
 # =====================================================
-# INITIALIZE MODELS (ONLY IF NOT DEMO)
+# INITIALIZE MODELS (ONLY ONCE)
 # =====================================================
 if not DEMO_MODE:
     try:
         llm = ChatOpenAI(
-            model="gpt-3.5-turbo",   # stable & widely available
+            model="gpt-3.5-turbo",  # stable model
             temperature=0
         )
         search_tool = TavilySearchResults(max_results=3)
     except Exception:
         DEMO_MODE = True
-        st.warning("⚠️ Falling back to DEMO MODE due to API initialization failure")
+        OPENAI_DISABLED = True
+        st.info("ℹ️ Switched to DEMO MODE")
 
 # =====================================================
 # FUNCTIONS
@@ -59,14 +64,14 @@ def extract_text_from_pdf(uploaded_file):
 
 
 def extract_claims(text):
-    # ---------- DEMO MODE ----------
-    if DEMO_MODE:
-        # Simple regex-based claim extraction
-        lines = text.split("\n")
-        claims = [line for line in lines if re.search(r"\d", line)]
-        return claims[:5]
+    global DEMO_MODE, OPENAI_DISABLED
 
-    # ---------- REAL MODE ----------
+    # ---------- DEMO MODE ----------
+    if DEMO_MODE or OPENAI_DISABLED:
+        lines = text.split("\n")
+        return [l for l in lines if re.search(r"\d", l)][:5]
+
+    # ---------- LIVE MODE ----------
     prompt = f"""
     Extract ONLY factual, verifiable claims from the text below.
     Claims must include numbers, dates, statistics, or measurable facts.
@@ -79,22 +84,26 @@ def extract_claims(text):
     try:
         response = llm.invoke([HumanMessage(content=prompt)])
         lines = response.content.split("\n")
-        claims = [line.strip("-• ") for line in lines if re.search(r"\d", line)]
+        claims = [l.strip("-• ") for l in lines if re.search(r"\d", l)]
         return list(dict.fromkeys(claims))
+
     except Exception:
-        st.warning("⚠️ OpenAI failed — switching to DEMO MODE")
+        OPENAI_DISABLED = True
+        DEMO_MODE = True
         return extract_claims(text)
 
 
 def verify_claim(claim):
+    global DEMO_MODE, OPENAI_DISABLED
+
     # ---------- DEMO MODE ----------
-    if DEMO_MODE:
+    if DEMO_MODE or OPENAI_DISABLED:
         return (
             "Status: Inaccurate\n"
-            "Explanation: Demo mode result. Live verification unavailable."
+            "Explanation: Demo mode result (live verification unavailable)."
         ), None
 
-    # ---------- REAL MODE ----------
+    # ---------- LIVE MODE ----------
     try:
         search_results = search_tool.run(claim)
 
@@ -118,11 +127,9 @@ def verify_claim(claim):
         return response.content, search_results
 
     except Exception:
-        st.warning("⚠️ Verification failed — DEMO MODE result shown")
-        return (
-            "Status: False\n"
-            "Explanation: Verification failed due to API error."
-        ), None
+        OPENAI_DISABLED = True
+        DEMO_MODE = True
+        return verify_claim(claim)
 
 
 # =====================================================
