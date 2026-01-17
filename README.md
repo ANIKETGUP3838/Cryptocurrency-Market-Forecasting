@@ -44,7 +44,7 @@ To build a fact-checking layer that:
 ```text
 fact-checker-app/
 │
-├── CMF.py
+├── AI_FACT CHECKER.py
 ├── requirements.txt
 ├── README.md
 └── .streamlit/
