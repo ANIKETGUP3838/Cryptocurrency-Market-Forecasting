@@ -1,78 +1,46 @@
 # AI Fact-Checking Web App
 
-A deployed web application that automatically extracts factual claims from a PDF
-and verifies them against **live web data**.
-
-This app is designed to be **robust, production-safe**, and resilient to real-world
-API limitations such as OpenAI quota exhaustion.
+A web application that extracts factual claims from PDFs and verifies them using
+**live web data**. The app is designed to be robust against API limitations and
+remain usable during evaluation.
 
 ---
 
 ## 🚀 Live Demo
-🔗 **Deployed App URL:**  
-(Add your Streamlit app link here)
+🔗 **App URL:**  
+(Add your deployed Streamlit link here)
 
 ---
 
 ## 🎯 Objective
 
-The goal of this project is to build a **fact-checking layer** that sits between
-content drafts and publishing. The system identifies factual claims and checks
-their accuracy using **real-time web search**.
+To build a fact-checking layer that:
+- Extracts factual claims (numbers, dates, statistics)
+- Verifies them using real-time web search
+- Flags claims as **Verified**, **Inaccurate**, or **False**
 
 ---
 
 ## 🧠 How It Works
 
-### 1️⃣ Claim Extraction
-- The app extracts factual claims (numbers, dates, statistics) from an uploaded PDF.
-- **Primary method:** OpenAI LLM (when available)
-- **Fallback method:** Regex-based extraction when LLM quota is exhausted
+### Claim Extraction
+- Primary: OpenAI LLM (when available)
+- Fallback: Regex-based extraction when quota is exhausted
 
-### 2️⃣ Live Verification
-- Claims are verified using **Tavily Web Search API**
-- The app analyzes live search results to classify each claim as:
-  - **Verified**
-  - **Inaccurate**
-  - **False**
+### Live Verification
+- Uses Tavily Web Search API
+- Verifies claims using live web sources
 
-### 3️⃣ Reporting
-For every claim, the app displays:
+### Reporting
+- Displays claim
 - Verification status
-- Short explanation
-- Live web sources used
-
----
-
-## 🛡️ API Quota Handling (Important)
-
-This app is intentionally built to **degrade gracefully** under API limitations.
-
-### If OpenAI quota is available:
-- LLM-based claim extraction is used
-- Tavily is used for live verification
-
-### If OpenAI quota is exhausted:
-- The app switches to **regex-based claim extraction**
-- **Live web verification continues using Tavily**
-- The app does **not crash** and remains fully testable
-
-This design reflects real-world production reliability and ensures uninterrupted evaluation.
-
----
-
-## 🧰 Tech Stack
-
-- **Frontend:** Streamlit  
-- **Backend:** Python  
-- **LLM:** OpenAI (`gpt-3.5-turbo`)  
-- **Web Search:** Tavily API  
-- **Framework:** LangChain  
-- **PDF Parsing:** pdfplumber  
+- Explanation
+- Source links
 
 ---
 
 ## 📂 Project Structure
+
 ```text
 fact-checker-app/
 │
@@ -82,4 +50,51 @@ fact-checker-app/
 └── .streamlit/
     └── config.toml
 ```
+---
 
+## 🧰 Tech Stack
+
+- Streamlit
+- Python
+- OpenAI (GPT-3.5-turbo)
+- Tavily Search API
+- LangChain
+- pdfplumber
+
+---
+
+## 🔐 Environment Variables
+
+Set the following in **Streamlit Secrets**:
+```text
+OPENAI_API_KEY=your_openai_key
+TAVILY_API_KEY=your_tavily_key
+```
+
+---
+
+## 🛡️ API Quota Handling
+
+If OpenAI quota is exhausted:
+- Claim extraction falls back to regex-based logic
+- Live web verification continues using Tavily
+- The app does not crash
+
+This ensures uninterrupted evaluation.
+
+---
+
+## 🎥 Demo Video
+📹 A short screen recording showing:
+- PDF upload
+- Claim extraction
+- Live verification
+
+(Add demo video link here)
+
+---
+
+## 👤 Author
+
+**Aniket**  
+Final Year B.Tech CSE (Data Science)
