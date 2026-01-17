@@ -1,11 +1,6 @@
 streamlit
-pandas
-numpy
-plotly
-statsmodels
-scipy
-scikit-learn
-tensorflow
-keras
-matplotlib
-arch
+pdfplumber
+langchain
+langchain-openai
+tavily-python
+openai
