@@ -1,213 +1,120 @@
-# =========================================================
-# Cryptocurrency Market Forecasting App
-# =========================================================
-
 import streamlit as st
-import pandas as pd
-import numpy as np
-import warnings
-warnings.filterwarnings("ignore")
+import pdfplumber
+import re
+import os
 
-import plotly.express as px
-import plotly.graph_objects as go
+from langchain_openai import ChatOpenAI
+from langchain.tools.tavily_search import TavilySearchResults
+from langchain.schema import HumanMessage
 
-from statsmodels.tsa.stattools import adfuller
-from statsmodels.tsa.arima.model import ARIMA
-from arch import arch_model
+# ======================
+# CONFIG
+# ======================
+st.set_page_config(page_title="Fact Checker", layout="wide")
 
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import mean_squared_error, r2_score
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense
+llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0
+)
 
-# =========================================================
-# Streamlit Configuration
-# =========================================================
-st.set_page_config(page_title="Crypto Forecasting", layout="wide")
-st.title("📈 Cryptocurrency Market Forecasting App")
+search_tool = TavilySearchResults(
+    max_results=3,
+    tavily_api_key=TAVILY_API_KEY
+)
 
-tab1, tab2 = st.tabs(["📄 Dataset Overview", "📊 Forecasting"])
+# ======================
+# FUNCTIONS
+# ======================
+def extract_text_from_pdf(pdf):
+    text = ""
+    with pdfplumber.open(pdf) as p:
+        for page in p.pages:
+            text += page.extract_text() + "\n"
+    return text
 
-# =========================================================
-# Safe ADF Test Function (NO CRASH)
-# =========================================================
-def safe_adf_test(series):
-    series = series.dropna()
 
-    if len(series) < 10:
-        return {"Status": "❌ Not enough data points for ADF test"}
+def extract_claims(text):
+    """
+    Uses LLM to extract verifiable claims
+    """
+    prompt = f"""
+    Extract ONLY factual, verifiable claims from the text below.
+    Claims must include statistics, numbers, dates, or factual statements.
 
-    if series.nunique() == 1:
-        return {"Status": "❌ Series is constant (ADF not applicable)"}
+    Return them as a numbered list.
 
-    result = adfuller(series, autolag="AIC")
+    TEXT:
+    {text}
+    """
 
-    return {
-        "ADF Statistic": round(result[0], 4),
-        "p-value": round(result[1], 6),
-        "Lags Used": result[2],
-        "Observations": result[3],
-        "Critical Values": result[4],
-        "Stationary": "✅ Yes" if result[1] < 0.05 else "❌ No"
-    }
+    response = llm([HumanMessage(content=prompt)])
+    claims = response.content.split("\n")
 
-# =========================================================
-# TAB 1 : Dataset Overview
-# =========================================================
-with tab1:
-    st.header("Dataset Description")
-    st.markdown("""
-    **crypto-markets.csv** contains daily historical cryptocurrency data.
+    return [c for c in claims if re.search(r"\d", c)]
 
-    **Important Columns**
-    - `date`
-    - `symbol`
-    - `open`, `high`, `low`, `close`
-    - `volume`, `market_cap`
 
-    **Target Variable:** `close` price  
-    **Models Used:** ARIMA, GARCH, LSTM  
-    **Objective:** Price & volatility forecasting
-    """)
+def verify_claim(claim):
+    """
+    Verifies claim using live web search
+    """
+    search_results = search_tool.run(claim)
 
-# =========================================================
-# TAB 2 : Forecasting
-# =========================================================
-with tab2:
-    uploaded_file = st.sidebar.file_uploader(
-        "Upload crypto-markets.csv", type=["csv"]
-    )
+    verification_prompt = f"""
+    Claim: {claim}
 
-    if uploaded_file is None:
-        st.warning("Please upload the dataset to continue.")
-        st.stop()
+    Web Search Results:
+    {search_results}
 
-    # ---------------- Load Data ----------------
-    df = pd.read_csv(uploaded_file)
-    df['date'] = pd.to_datetime(df['date'])
+    Based on the search results, classify the claim as:
+    - Verified
+    - Inaccurate
+    - False
 
-    st.sidebar.subheader("Filters")
-    symbol = st.sidebar.selectbox(
-        "Cryptocurrency Symbol",
-        sorted(df['symbol'].unique())
-    )
+    Give a 1–2 line explanation and mention the correct fact if applicable.
+    """
 
-    df = df[df['symbol'] == symbol].copy()
-    df.set_index('date', inplace=True)
-    df.sort_index(inplace=True)
+    response = llm([HumanMessage(content=verification_prompt)])
 
-    # ---------------- Visualization -------------
-    st.subheader(f"{symbol} – Closing Price")
-    st.write(df[['close']].head())
+    return response.content, search_results
 
-    fig_price = px.line(
-        df, y='close',
-        title="Closing Price Over Time"
-    )
-    st.plotly_chart(fig_price, use_container_width=True)
 
-    # ---------------- Stationarity ---------------
-    st.subheader("ADF Stationarity Test")
+# ======================
+# UI
+# ======================
+st.title("🕵️ AI Fact-Checking Web App")
+st.write("Upload a PDF and automatically verify claims using live web data.")
 
-    col1, col2 = st.columns(2)
+uploaded_file = st.file_uploader("📄 Upload PDF", type=["pdf"])
 
-    with col1:
-        st.markdown("### Original Series")
-        st.write(safe_adf_test(df['close']))
+if uploaded_file:
+    with st.spinner("Extracting text from PDF..."):
+        text = extract_text_from_pdf(uploaded_file)
 
-    with col2:
-        st.markdown("### First Differenced Series")
-        diff_series = df['close'].diff()
-        st.write(safe_adf_test(diff_series))
+    with st.spinner("Identifying factual claims..."):
+        claims = extract_claims(text)
 
-    st.info(
-        "ADF Test: p-value < 0.05 ⇒ Stationary series"
-    )
+    st.subheader("📌 Extracted Claims")
 
-    # ---------------- Train/Test Split ----------
-    train = df['close'][:-90]
-    test = df['close'][-90:]
+    if not claims:
+        st.warning("No verifiable claims found.")
+    else:
+        for i, claim in enumerate(claims, 1):
+            st.markdown(f"**{i}. {claim}**")
 
-    # =====================================================
-    # ARIMA MODEL
-    # =====================================================
-    st.subheader("ARIMA Price Forecast")
+        st.subheader("🔍 Verification Results")
 
-    if st.button("Run ARIMA"):
-        model = ARIMA(train, order=(5, 1, 0))
-        model_fit = model.fit()
-        forecast = model_fit.forecast(steps=90)
+        for i, claim in enumerate(claims, 1):
+            with st.spinner(f"Verifying claim {i}..."):
+                verdict, sources = verify_claim(claim)
 
-        rmse = np.sqrt(mean_squared_error(test, forecast))
-        r2 = r2_score(test, forecast)
+            st.markdown("---")
+            st.markdown(f"### Claim {i}")
+            st.markdown(f"**{claim}**")
+            st.markdown(verdict)
 
-        st.success(f"RMSE: {rmse:.2f} | R²: {r2:.4f}")
-
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=train.index, y=train, name="Train"))
-        fig.add_trace(go.Scatter(x=test.index, y=test, name="Test"))
-        fig.add_trace(go.Scatter(x=test.index, y=forecast, name="Forecast"))
-        fig.update_layout(title="ARIMA Forecast")
-        st.plotly_chart(fig, use_container_width=True)
-
-    # =====================================================
-    # GARCH MODEL
-    # =====================================================
-    st.subheader("GARCH Volatility Forecast")
-
-    if st.button("Run GARCH"):
-        returns = 100 * df['close'].pct_change().dropna()
-
-        if returns.nunique() > 1:
-            garch_model = arch_model(
-                returns, vol='Garch', p=1, q=1
-            )
-            res = garch_model.fit(disp="off")
-            forecast = res.forecast(horizon=90)
-            volatility = forecast.variance.values[-1]
-
-            fig = px.line(
-                volatility,
-                title="90-Day Forecasted Volatility"
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("Returns are constant. GARCH cannot be applied.")
-
-    # =====================================================
-    # LSTM MODEL
-    # =====================================================
-    st.subheader("LSTM Price Forecast")
-
-    if st.button("Run LSTM"):
-        scaler = MinMaxScaler()
-        scaled_data = scaler.fit_transform(df[['close']])
-
-        def create_sequences(data, look_back=30):
-            X, y = [], []
-            for i in range(len(data) - look_back):
-                X.append(data[i:i + look_back])
-                y.append(data[i + look_back])
-            return np.array(X), np.array(y)
-
-        X, y = create_sequences(scaled_data)
-        X = X.reshape(X.shape[0], X.shape[1], 1)
-
-        X_train, X_test = X[:-90], X[-90:]
-        y_train, y_test = y[:-90], y[-90:]
-
-        model = Sequential()
-        model.add(LSTM(50, input_shape=(30, 1)))
-        model.add(Dense(1))
-        model.compile(optimizer='adam', loss='mse')
-
-        model.fit(
-            X_train, y_train,
-            epochs=10,
-            batch_size=16,
-            verbose=0
-        )
-
-        predictions = model.predict(X_test)
-        predictions = scaler.i
+            if sources:
+                st.markdown("**Sources:**")
+                st.json(sources)
