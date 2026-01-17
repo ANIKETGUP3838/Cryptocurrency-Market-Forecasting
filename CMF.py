@@ -18,40 +18,45 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-# -------------------- PAGE CONFIG --------------------
+# ================== PAGE CONFIG ==================
 st.set_page_config(layout="wide")
 st.title("📈 Cryptocurrency Market Forecasting App")
 
 tab1, tab2 = st.tabs(["📄 Project Summary", "📊 Forecasting App"])
 
-# ====================================================
-# TAB 1 — SUMMARY
-# ====================================================
+# ================== HELPERS ==================
+def detect_crypto_column(df):
+    for col in ["symbol", "coin", "name", "id", "asset"]:
+        if col in df.columns:
+            return col
+    return None
+
+def detect_date_column(df):
+    for col in ["date", "timestamp", "time", "datetime"]:
+        if col in df.columns:
+            return col
+    return None
+
+# ================== TAB 1 ==================
 with tab1:
     st.markdown("""
     ### 🔍 Objective
-    Forecast cryptocurrency market metrics using historical time-series data.
-
-    ### 📦 Dataset
-    - Daily crypto market data
-    - Columns vary by dataset (handled dynamically)
+    Forecast cryptocurrency market behavior using time-series models.
 
     ### 🧠 Models
     - ARIMA
     - SARIMA
     - Exponential Smoothing
-    - ARCH / GARCH (Volatility)
-    - LSTM Neural Network
+    - ARCH / GARCH
+    - LSTM
 
     ### 📈 Output
-    - 90-day forecast
-    - Trend & seasonality analysis
+    - 90-step forecast
+    - Seasonality & trend analysis
     - Volatility modeling
     """)
 
-# ====================================================
-# TAB 2 — FORECASTING
-# ====================================================
+# ================== TAB 2 ==================
 with tab2:
 
     uploaded_file = st.sidebar.file_uploader(
@@ -60,37 +65,54 @@ with tab2:
     )
 
     if uploaded_file is None:
-        st.warning("Please upload the crypto dataset to proceed.")
+        st.warning("Please upload a CSV file to proceed.")
         st.stop()
 
-    # -------------------- LOAD DATA --------------------
+    # ---------- LOAD DATA ----------
     df = pd.read_csv(uploaded_file)
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df.dropna(subset=["date"], inplace=True)
-    df.sort_values("date", inplace=True)
 
+    # ---------- DETECT DATE COLUMN ----------
+    date_col = detect_date_column(df)
+    if date_col is None:
+        st.error("No date column found. Expected: date / timestamp / time")
+        st.write("Available columns:", df.columns.tolist())
+        st.stop()
+
+    df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+    df.dropna(subset=[date_col], inplace=True)
+    df.sort_values(date_col, inplace=True)
+
+    # ---------- DETECT CRYPTO COLUMN ----------
+    crypto_col = detect_crypto_column(df)
+    if crypto_col is None:
+        st.error(
+            "No crypto identifier column found.\n"
+            "Expected one of: symbol, coin, name, id, asset"
+        )
+        st.write("Available columns:", df.columns.tolist())
+        st.stop()
+
+    st.sidebar.success(f"Detected crypto column: `{crypto_col}`")
+    st.sidebar.success(f"Detected date column: `{date_col}`")
+
+    # ---------- FILTERS ----------
     st.sidebar.subheader("Filters")
 
-    # -------------------- SYMBOL FILTER --------------------
-    if "symbol" not in df.columns:
-        st.error("Dataset must contain a 'symbol' column.")
-        st.stop()
-
-    symbol = st.sidebar.selectbox(
+    crypto_value = st.sidebar.selectbox(
         "Cryptocurrency",
-        sorted(df["symbol"].unique())
+        sorted(df[crypto_col].astype(str).unique())
     )
 
-    filtered_df = df[df["symbol"] == symbol].copy()
-    filtered_df.set_index("date", inplace=True)
+    filtered_df = df[df[crypto_col].astype(str) == crypto_value].copy()
+    filtered_df.set_index(date_col, inplace=True)
 
-    # -------------------- TARGET COLUMN (SAFE) --------------------
+    # ---------- NUMERIC COLUMNS ----------
     numeric_cols = filtered_df.select_dtypes(
         include=["int64", "float64"]
     ).columns.tolist()
 
     if not numeric_cols:
-        st.error("No numeric columns found for forecasting.")
+        st.error("No numeric columns available for forecasting.")
         st.stop()
 
     target_col = st.sidebar.selectbox(
@@ -104,18 +126,18 @@ with tab2:
         st.warning("Not enough data points for reliable forecasting.")
         st.stop()
 
-    # -------------------- DATA PREVIEW --------------------
-    st.subheader(f"{symbol} — {target_col.upper()} (Preview)")
+    # ---------- PREVIEW ----------
+    st.subheader(f"{crypto_value} — {target_col.upper()}")
     st.write(series.head())
 
-    # -------------------- TIME SERIES PLOT --------------------
+    # ---------- TIME SERIES ----------
     fig = px.line(
         series,
-        title=f"{symbol} {target_col.upper()} Over Time"
+        title=f"{crypto_value} {target_col.upper()} Over Time"
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    # -------------------- SEASONAL DECOMPOSITION --------------------
+    # ---------- DECOMPOSITION ----------
     st.subheader("Seasonal Decomposition")
     decomposition = sm.tsa.seasonal_decompose(
         series,
@@ -136,7 +158,7 @@ with tab2:
     fig.update_layout(height=800)
     st.plotly_chart(fig, use_container_width=True)
 
-    # -------------------- ADF TEST --------------------
+    # ---------- ADF TEST ----------
     st.subheader("ADF Stationarity Test")
     adf_result = adfuller(series)
     st.write({
@@ -145,34 +167,19 @@ with tab2:
         "Lags Used": adf_result[2]
     })
 
-    # -------------------- TRAIN / TEST --------------------
+    # ---------- TRAIN / TEST ----------
     train = series[:-90]
     test = series[-90:]
 
-    # ====================================================
-    # ARIMA
-    # ====================================================
+    # ================== ARIMA ==================
     if st.button("Run ARIMA Forecast"):
         model = ARIMA(train, order=(5, 1, 0)).fit()
         forecast = model.forecast(90)
 
-        rmse = np.sqrt(mean_squared_error(test, forecast))
-        r2 = r2_score(test, forecast)
+        st.write(f"RMSE: {np.sqrt(mean_squared_error(test, forecast)):.2f}")
+        st.write(f"R²: {r2_score(test, forecast):.4f}")
 
-        st.success("ARIMA Metrics")
-        st.write(f"RMSE: {rmse:.2f}")
-        st.write(f"R²: {r2:.4f}")
-
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=train.index, y=train, name="Train"))
-        fig.add_trace(go.Scatter(x=test.index, y=test, name="Test"))
-        fig.add_trace(go.Scatter(x=test.index, y=forecast, name="Forecast"))
-        fig.update_layout(title="ARIMA Forecast")
-        st.plotly_chart(fig, use_container_width=True)
-
-    # ====================================================
-    # SARIMA
-    # ====================================================
+    # ================== SARIMA ==================
     if st.button("Run SARIMA Forecast"):
         model = SARIMAX(
             train,
@@ -183,9 +190,7 @@ with tab2:
         forecast = model.get_forecast(90).predicted_mean
         st.write(f"RMSE: {np.sqrt(mean_squared_error(test, forecast)):.2f}")
 
-    # ====================================================
-    # EXPONENTIAL SMOOTHING
-    # ====================================================
+    # ================== EXP SMOOTH ==================
     if st.button("Run Exponential Smoothing"):
         model = ExponentialSmoothing(
             train,
@@ -197,26 +202,19 @@ with tab2:
         forecast = model.forecast(90)
         st.write(f"RMSE: {np.sqrt(mean_squared_error(test, forecast)):.2f}")
 
-    # ====================================================
-    # GARCH VOLATILITY
-    # ====================================================
+    # ================== GARCH ==================
     if st.button("Run GARCH Volatility Forecast"):
         returns = 100 * series.pct_change().dropna()
         model = arch_model(returns, vol="Garch", p=1, q=1)
         res = model.fit(disp="off")
 
         forecast = res.forecast(horizon=90)
-        volatility = forecast.variance.values[-1]
+        vol = forecast.variance.values[-1]
 
-        fig = px.line(
-            y=volatility,
-            title="Forecasted Volatility (GARCH)"
-        )
+        fig = px.line(y=vol, title="Forecasted Volatility")
         st.plotly_chart(fig, use_container_width=True)
 
-    # ====================================================
-    # LSTM
-    # ====================================================
+    # ================== LSTM ==================
     if st.button("Run LSTM Forecast"):
         scaler = MinMaxScaler()
         scaled = scaler.fit_transform(series.values.reshape(-1, 1))
@@ -234,28 +232,12 @@ with tab2:
             Dense(1)
         ])
         model.compile(loss="mse", optimizer="adam")
-        model.fit(
-            X[:-90], y[:-90],
-            epochs=10,
-            batch_size=16,
-            verbose=0
-        )
+        model.fit(X[:-90], y[:-90], epochs=10, batch_size=16, verbose=0)
 
-        preds = model.predict(X[-90:])
-        preds = scaler.inverse_transform(preds)
-
-        st.success("LSTM Forecast Completed")
+        preds = scaler.inverse_transform(model.predict(X[-90:]))
 
         fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=test.index,
-            y=test.values,
-            name="Actual"
-        ))
-        fig.add_trace(go.Scatter(
-            x=test.index,
-            y=preds.flatten(),
-            name="LSTM Forecast"
-        ))
+        fig.add_trace(go.Scatter(x=test.index, y=test.values, name="Actual"))
+        fig.add_trace(go.Scatter(x=test.index, y=preds.flatten(), name="LSTM Forecast"))
         fig.update_layout(title="LSTM Forecast vs Actual")
         st.plotly_chart(fig, use_container_width=True)
