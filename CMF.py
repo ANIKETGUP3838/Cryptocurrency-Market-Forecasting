@@ -6,6 +6,7 @@ import re
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 from langchain_community.tools.tavily_search import TavilySearchResults
+from openai import RateLimitError
 
 # =====================================================
 # STREAMLIT CONFIG
@@ -21,28 +22,27 @@ OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY"))
 TAVILY_API_KEY = st.secrets.get("TAVILY_API_KEY", os.getenv("TAVILY_API_KEY"))
 
 if not OPENAI_API_KEY or not TAVILY_API_KEY:
-    st.error(
-        "❌ API keys missing.\n\n"
-        "Please add OPENAI_API_KEY and TAVILY_API_KEY in Streamlit Secrets."
-    )
+    st.error("❌ API keys missing. Live verification cannot run.")
     st.stop()
 
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
 
 # =====================================================
-# INITIALIZE MODELS (LIVE ONLY)
+# INITIALIZE MODELS
 # =====================================================
 try:
     llm = ChatOpenAI(
-        model="gpt-3.5-turbo",   # stable & widely available
+        model="gpt-3.5-turbo",
         temperature=0
     )
     search_tool = TavilySearchResults(max_results=3)
 except Exception as e:
-    st.error("❌ Failed to initialize OpenAI or Tavily")
+    st.error("❌ Failed to initialize APIs")
     st.exception(e)
     st.stop()
+
+quota_exhausted = False  # 🔑 important flag
 
 # =====================================================
 # FUNCTIONS
@@ -51,13 +51,22 @@ def extract_text_from_pdf(uploaded_file):
     text = ""
     with pdfplumber.open(uploaded_file) as pdf:
         for page in pdf.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
+            t = page.extract_text()
+            if t:
+                text += t + "\n"
     return text
 
 
+def regex_claim_extraction(text):
+    """Fallback extraction without OpenAI"""
+    lines = text.split("\n")
+    claims = [l for l in lines if re.search(r"\d", l)]
+    return claims[:5]
+
+
 def extract_claims(text):
+    global quota_exhausted
+
     prompt = f"""
     Extract ONLY factual, verifiable claims from the text below.
     Claims must include numbers, dates, statistics, or measurable facts.
@@ -67,22 +76,27 @@ def extract_claims(text):
     {text}
     """
 
+    if quota_exhausted:
+        return regex_claim_extraction(text)
+
     try:
         response = llm.invoke([HumanMessage(content=prompt)])
+        lines = response.content.split("\n")
+        claims = [l.strip("-• ") for l in lines if re.search(r"\d", l)]
+        return list(dict.fromkeys(claims))
+
+    except RateLimitError:
+        quota_exhausted = True
+        st.warning(
+            "⚠️ OpenAI quota exhausted.\n"
+            "Using fallback claim extraction (no LLM)."
+        )
+        return regex_claim_extraction(text)
+
     except Exception as e:
         st.error("❌ OpenAI claim extraction failed")
         st.exception(e)
         st.stop()
-
-    lines = response.content.split("\n")
-
-    claims = [
-        line.strip("-• ")
-        for line in lines
-        if re.search(r"\d", line)
-    ]
-
-    return list(dict.fromkeys(claims))
 
 
 def verify_claim(claim):
@@ -112,6 +126,14 @@ def verify_claim(claim):
     try:
         response = llm.invoke([HumanMessage(content=prompt)])
         return response.content, search_results
+
+    except RateLimitError:
+        st.error(
+            "❌ OpenAI quota exhausted during verification.\n"
+            "Live verification cannot continue."
+        )
+        st.stop()
+
     except Exception as e:
         st.error("❌ OpenAI verification failed")
         st.exception(e)
@@ -130,7 +152,7 @@ if uploaded_file:
         claims = extract_claims(text)
 
     if not claims:
-        st.warning("No factual claims detected in the document.")
+        st.warning("No factual claims detected.")
         st.stop()
 
     st.subheader("📌 Extracted Claims")
