@@ -90,7 +90,7 @@ This ensures uninterrupted evaluation.
 - Claim extraction
 - Live verification
 
-(Add demo video link here)
+[(Demo Video Link)](https://drive.google.com/file/d/1zlJkhAS733q_HU-DC8Tc_pHr30pRPsVz/view?usp=drive_link)
 
 ---
 
