@@ -42,7 +42,7 @@ To build a fact-checking layer that:
 ## 📂 Project Structure
 
 ```text
-fact-checker-app/
+AI-Fact-Checking-Web-App/
 │
 ├── AI_FACT CHECKER.py
 ├── requirements.txt
